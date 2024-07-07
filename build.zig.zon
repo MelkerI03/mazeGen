@@ -1,0 +1,11 @@
+.{
+    .name = "Mazesolver",
+    .version = "0.0.1",
+    .dependencies = .{
+        .@"raylib-zig" = .{
+            .url = "https://github.com/Not-Nik/raylib-zig/archive/devel.tar.gz",
+            .hash = "1220f7489d0946ca7ea7ffec154041cb862066491f789c2a5f823191ed325d4c37ef",
+        },
+    },
+    .paths = .{""},
+}
