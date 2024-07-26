@@ -4,27 +4,36 @@ const std = @import("std");
 const mg = @import("maze_gen.zig");
 const rl = @import("raylib");
 const lg = @import("logic.zig");
+const draw = @import("draw.zig");
 
 const allocator = std.heap.page_allocator;
-const size: comptime_int = 6;
+const size: comptime_int = 25;
 const start = mg.Coordinates{ .x = 0, .y = 1 };
 const end = mg.Coordinates{ .x = size - 1, .y = size - 2 };
 var maze_done = false;
 var current_coords: mg.Coordinates = start;
 
+const screenWidth = 1920;
+const screenHeight = 1080;
+
+const sectors = size + 2;
+const minSize: u16 = @min(screenWidth, screenHeight);
+const sectorSize: u16 = minSize / sectors;
+
+const middle = mg.Coordinates{ .x = screenWidth / 2, .y = screenHeight / 2 };
+const zeroPosition = mg.Coordinates{ .x = middle.x - (sectorSize * size / 2), .y = middle.y - (sectorSize * size / 2) };
 pub fn main() !void {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const screenWidth = 800;
-    const screenHeight = 450;
 
     var maze = try mg.initMaze(allocator, size, start, end);
     defer allocator.free(maze.cells);
 
-    rl.initWindow(screenWidth, screenHeight, "raylib-zig [core] example - basic window");
+    rl.initWindow(screenWidth, screenHeight, "Maze Generator");
     defer rl.closeWindow(); // Close window and OpenGL context
 
-    rl.setTargetFPS(15); // Set our game to run at 60 frames-per-second
+    rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
+
     //--------------------------------------------------------------------------------------
 
     // Main game loop
@@ -63,102 +72,142 @@ pub fn main() !void {
         //----------------------------------------------------------------------------------
 
         rl.beginDrawing();
-
         defer rl.endDrawing();
 
         rl.clearBackground(rl.Color.white);
 
-        const stdout = std.io.getStdOut().writer();
+        // Should not be needed in the end
+        // const stdout = std.io.getStdOut().writer();
 
         // Print top wall
-        try stdout.print("#", .{});
-        for (0..maze.cells[0].len * 2) |i| {
-            const coord = mg.Coordinates{ .y = 0, .x = i + 1 };
-            const is_end = std.meta.eql(coord, maze.end);
-
-            if (is_end) {
-                try stdout.print("  ", .{});
-                continue;
-            }
-
-            try stdout.print(" #", .{});
+        for (maze.cells[0]) |cell| {
+            if (cell.hasWall(mg.Direction.Up)) drawWall(cell.coords, mg.Direction.Up);
         }
 
-        try stdout.print("\n", .{});
+        for (maze.cells) |row| {
+            // Draw left wall
+            if (row[0].hasWall(mg.Direction.Left)) drawWall(row[0].coords, mg.Direction.Left);
 
-        var coord: mg.Coordinates = undefined;
-        var cell: mg.Cell = undefined;
+            // Loop through all cells and draw right- and down-facing walls
+            for (row) |cell| {
+                // Draw walls
+                if (cell.hasWall(mg.Direction.Right)) drawWall(cell.coords, mg.Direction.Right);
+                if (cell.hasWall(mg.Direction.Down)) drawWall(cell.coords, mg.Direction.Down);
 
-        // Every row
-        for (0..maze.cells.len) |i| {
-            // First wall in row
-            coord = mg.Coordinates{ .y = i, .x = 0 };
-            cell = coord.cell(maze).*;
+                // Draw path
+                if ((cell.previous != null or std.meta.eql(cell.coords, maze.start)) and maze_done) {
+                    const startpoint = coordToPixel(cell.coords);
+                    const middle_x: u16 = @truncate(startpoint.x + sectorSize / 2);
+                    const middle_y: u16 = @truncate(startpoint.y + sectorSize / 2);
 
-            const is_start_or_end = std.meta.eql(coord, maze.start) or std.meta.eql(coord, maze.end);
-            if (is_start_or_end) {
-                try stdout.print(" ", .{});
-            } else {
-                try stdout.print("#", .{});
-            }
+                    // TODO: Draw path
+                    if (std.meta.eql(cell.coords, maze.start)) {
+                        rl.drawLine(middle_x, middle_y, middle_x - sectorSize / 2, middle_y, rl.Color.red);
+                    } else {
+                        const endpoint = coordToPixel(cell.previous.?);
+                        const endpoint_x: u16 = @truncate(endpoint.x + sectorSize / 2);
+                        const endpoint_y: u16 = @truncate(endpoint.y + sectorSize / 2);
 
-            // Every cell and wall in row
-            for (0..maze.cells[0].len, 0..) |j, count| {
-                _ = j;
-                coord = mg.Coordinates{ .y = i, .x = count };
-
-                cell = coord.cell(maze).*;
-                if ((cell.previous != null or std.meta.eql(coord, maze.start)) and maze_done) {
-                    try stdout.print(" o", .{});
-                } else {
-                    try stdout.print("  ", .{});
-                }
-
-                if (cell.hasWall(mg.Direction.Right)) {
-                    try stdout.print(" #", .{});
-                } else if (cell.previous != null and coord.toDir(mg.Direction.Right).cell(maze).previous != null) {
-                    try stdout.print(" o", .{});
-                } else {
-                    try stdout.print("  ", .{});
-                }
-            }
-
-            // New row
-            try stdout.print("\n", .{});
-
-            // Row with no cells
-            try stdout.print("#", .{});
-            for (0..maze.cells[0].len) |j| {
-                coord = mg.Coordinates{ .y = i, .x = j };
-                cell = coord.cell(maze).*;
-
-                if (i != maze.cells.len - 1) {
-                    const cellUnder = coord.toDir(mg.Direction.Down).cell(maze).*;
-
-                    if (cell.previous != null and cellUnder.previous != null and !cell.hasWall(mg.Direction.Down)) {
-                        try stdout.print(" o", .{});
-                        try stdout.print(" #", .{});
-                        continue;
+                        rl.drawLine(middle_x, middle_y, endpoint_x, endpoint_y, rl.Color.red);
                     }
                 }
-
-                if (cell.hasWall(mg.Direction.Down)) {
-                    try stdout.print(" #", .{});
-                } else {
-                    try stdout.print("  ", .{});
-                }
-                try stdout.print(" #", .{});
             }
-
-            try stdout.print("\n", .{});
         }
 
-        try stdout.print("\n", .{});
-        for (0..maze.cells.len * 4 + 1) |i| {
-            _ = i;
-            try stdout.print("-", .{});
-        }
-        try stdout.print("\n\n", .{});
+        //
+        // Console Maze Printing starts here!
+        //
+
+        //         try stdout.print("#", .{});
+        //         for (0..maze.cells[0].len * 2) |i| {
+        //             const coord = mg.Coordinates{ .y = 0, .x = i + 1 };
+        //             const is_end = std.meta.eql(coord, maze.end);
+        //
+        //             if (is_end) {
+        //                 try stdout.print("  ", .{});
+        //                 continue;
+        //             }
+        //
+        //             try stdout.print(" #", .{});
+        //         }
+        //
+        //         try stdout.print("\n", .{});
+        //
+        //         var coord: mg.Coordinates = undefined;
+        //         var cell: mg.Cell = undefined;
+        //
+        //         // Every row
+        //         for (0..maze.cells.len) |i| {
+        //             // First wall in row
+        //             coord = mg.Coordinates{ .y = i, .x = 0 };
+        //             cell = coord.cell(maze).*;
+        //
+        //             const is_start_or_end = std.meta.eql(coord, maze.start) or std.meta.eql(coord, maze.end);
+        //             if (is_start_or_end) {
+        //                 try stdout.print(" ", .{});
+        //             } else {
+        //                 try stdout.print("#", .{});
+        //             }
+        //
+        //             // Every cell and wall in row
+        //             for (0..maze.cells[0].len, 0..) |j, count| {
+        //                 _ = j;
+        //                 coord = mg.Coordinates{ .y = i, .x = count };
+        //
+        //                 cell = coord.cell(maze).*;
+        //                 if ((cell.previous != null or std.meta.eql(coord, maze.start)) and maze_done) {
+        //                     try stdout.print(" o", .{});
+        //                 } else {
+        //                     try stdout.print("  ", .{});
+        //                 }
+        //
+        //                 if (cell.hasWall(mg.Direction.Right)) {
+        //                     try stdout.print(" #", .{});
+        //                 } else if (cell.previous != null and coord.toDir(mg.Direction.Right).cell(maze).previous != null) {
+        //                     try stdout.print(" o", .{});
+        //                 } else {
+        //                     try stdout.print("  ", .{});
+        //                 }
+        //             }
+        //
+        //             // New row
+        //             try stdout.print("\n", .{});
+        //
+        //             // Row with no cells
+        //             try stdout.print("#", .{});
+        //             for (0..maze.cells[0].len) |j| {
+        //                 coord = mg.Coordinates{ .y = i, .x = j };
+        //                 cell = coord.cell(maze).*;
+        //
+        //                 if (i != maze.cells.len - 1) {
+        //                     const cellUnder = coord.toDir(mg.Direction.Down).cell(maze).*;
+        //
+        //                     if (cell.previous != null and cellUnder.previous != null and !cell.hasWall(mg.Direction.Down)) {
+        //                         try stdout.print(" o", .{});
+        //                         try stdout.print(" #", .{});
+        //                         continue;
+        //                     }
+        //                 }
+        //
+        //                 if (cell.hasWall(mg.Direction.Down)) {
+        //                     try stdout.print(" #", .{});
+        //                 } else {
+        //                     try stdout.print("  ", .{});
+        //                 }
+        //                 try stdout.print(" #", .{});
+        //             }
+        //
+        //             try stdout.print("\n", .{});
+        //         }
+        //
+        //         try stdout.print("\n", .{});
+        //         for (0..maze.cells.len * 4 + 1) |i| {
+        //             _ = i;
+        //             try stdout.print("-", .{});
+        //         }
+        //         try stdout.print("\n\n", .{});
+        //
+        //         // End of console maze printing
     }
 
     //----------------------------------------------------------------------------------
@@ -222,4 +271,25 @@ fn gotoNext(maze: *mg.Maze) !void {
 
     // Set new cell to visited
     maze.cells[current_coords.y][current_coords.x].is_visited = true;
+}
+
+fn coordToPixel(mazeCoord: mg.Coordinates) mg.Coordinates {
+    const pixelCoord: mg.Coordinates = .{ .x = zeroPosition.x + mazeCoord.x * sectorSize, .y = zeroPosition.y + mazeCoord.y * sectorSize };
+
+    return pixelCoord;
+}
+
+fn drawWall(coord: mg.Coordinates, dir: mg.Direction) void {
+    const startpoint = coordToPixel(coord);
+    const startpoint_x: u16 = @truncate(startpoint.x);
+    const startpoint_y: u16 = @truncate(startpoint.y);
+
+    const line_color = rl.Color.black;
+
+    switch (dir) {
+        .Up => rl.drawLine(startpoint_x, startpoint_y, startpoint_x + sectorSize, startpoint_y, line_color),
+        .Down => rl.drawLine(startpoint_x, startpoint_y + sectorSize, startpoint_x + sectorSize, startpoint_y + sectorSize, line_color),
+        .Left => rl.drawLine(startpoint_x, startpoint_y, startpoint_x, startpoint_y + sectorSize, line_color),
+        .Right => rl.drawLine(startpoint_x + sectorSize, startpoint_y, startpoint_x + sectorSize, startpoint_y + sectorSize, line_color),
+    }
 }
