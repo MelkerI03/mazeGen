@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const rl = @import("raylib");
 const gui = @cImport({
     @cInclude("raygui.h");
@@ -6,17 +7,13 @@ const gui = @cImport({
 
 const mg = @import("maze_gen.zig");
 const lg = @import("logic.zig");
-// const draw = @import("draw.zig");
 
-const size: comptime_int = 25;
-const start = mg.Coordinates{ .x = 0, .y = 1 };
-const end = mg.Coordinates{ .x = size - 1, .y = size - 2 };
-
-var gameState = lg.GameState.Menu;
-var solved = false;
-
+// Settings
+const size: comptime_int = 50;
 const screenWidth = 1400;
 const screenHeight = 900;
+
+var solved = false;
 
 // Variables for button placement
 const guiOffset = 50;
@@ -37,14 +34,29 @@ pub fn main() !void {
     //--------------------------------------------------------------------------------------
 
     const allocator = std.heap.page_allocator;
-    var maze = try mg.initMaze(allocator, size, start, end);
-    defer allocator.free(maze.cells);
 
-    var currentCoord: mg.Coordinates = start;
+    const start: *mg.Coordinates = try allocator.create(mg.Coordinates);
+    const end: *mg.Coordinates = try allocator.create(mg.Coordinates);
+    defer {
+        allocator.destroy(start);
+        allocator.destroy(end);
+    }
 
-    const genRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight - 3 * buttonHeight) / 2 - guiOffset, .width = buttonWidth, .height = buttonHeight };
-    const solvRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight - buttonHeight) / 2, .width = buttonWidth, .height = buttonHeight };
-    const exitRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight + buttonHeight) / 2 + guiOffset, .width = buttonWidth, .height = buttonHeight };
+    const rand = std.crypto.random;
+    start.* = mg.Coordinates{ .x = 0, .y = rand.intRangeLessThan(u16, 1, size) };
+    end.* = mg.Coordinates{ .x = size - 1, .y = rand.intRangeLessThan(u16, 1, size) };
+
+    var maze = try mg.initMaze(allocator, size, start.*, end.*);
+    defer {
+        for (maze.cells) |row| {
+            allocator.free(row);
+        }
+        allocator.free(maze.cells);
+    }
+
+    var currentCoord: mg.Coordinates = start.*;
+
+    var gameState = lg.GameState.Menu;
 
     rl.initWindow(screenWidth, screenHeight, "Maze Generator");
     defer rl.closeWindow(); // Close window and OpenGL context
@@ -55,7 +67,7 @@ pub fn main() !void {
 
     // Main game loop
     while (!rl.windowShouldClose()) { // Detect window close button or ESC key
-        // Update
+        // Update variables
         //----------------------------------------------------------------------------------
 
         switch (gameState) {
@@ -63,7 +75,7 @@ pub fn main() !void {
             .Generating => {
                 const next = gotoNext(&maze, &currentCoord);
                 if (next == error.GenerationDone) {
-                    // Reset visited flag for each cell in maze
+                    // Reset visited flag for each cell in maze for solving purposes
                     for (0..maze.cells.len) |i| {
                         for (0..maze.cells.len) |j| {
                             maze.cells[i][j].is_visited = false;
@@ -81,14 +93,7 @@ pub fn main() !void {
                     currentCoord = try potentialCoords;
                 }
             },
-            .Done => {
-                std.debug.print("Done!\n", .{});
-                std.time.sleep(1000000000);
-                break;
-            },
         }
-
-        if (gameState == lg.GameState.Solving) {}
 
         // Draw
         //----------------------------------------------------------------------------------
@@ -96,14 +101,25 @@ pub fn main() !void {
         rl.beginDrawing();
         defer rl.endDrawing();
 
+        // Some simple math to place the buttons in the right place
+        const genRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight - 3 * buttonHeight) / 2 - guiOffset, .width = buttonWidth, .height = buttonHeight };
+        const solvRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight - buttonHeight) / 2, .width = buttonWidth, .height = buttonHeight };
+        const exitRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight + buttonHeight) / 2 + guiOffset, .width = buttonWidth, .height = buttonHeight };
+
         switch (gameState) {
             .Menu => {
                 if (gui.GuiButton(genRect, "Generate") > 0) {
+
                     // If the maze is already generated, reset the maze and generate a new one
                     if (maze.cells[0][0].path_count != 0) {
-                        maze = try mg.initMaze(allocator, size, start, end);
+                        const randStart = mg.Coordinates{ .x = 0, .y = rand.intRangeLessThan(u16, 1, size) };
+                        const randEnd = mg.Coordinates{ .x = size - 1, .y = rand.intRangeLessThan(u16, 1, size) };
+
+                        start.* = randStart;
+                        end.* = randEnd;
+                        maze = try mg.initMaze(allocator, size, start.*, end.*);
                         solved = false;
-                        currentCoord = start;
+                        currentCoord = start.*;
                     }
                     gameState = lg.GameState.Generating;
                 }
@@ -127,8 +143,10 @@ pub fn main() !void {
             .Generating => {
                 drawMaze(maze, rl.Color.black);
 
+                // Draw the buttons, but they are disabled while generating
                 _ = gui.GuiButton(genRect, "Generate");
                 _ = gui.GuiButton(solvRect, "Solve");
+                // Exit button is still enabled
                 if (gui.GuiButton(exitRect, "Exit") > 0) {
                     break;
                 }
@@ -136,13 +154,14 @@ pub fn main() !void {
             .Solving => {
                 drawMaze(maze, rl.Color.black);
                 drawPath(maze, rl.Color.red);
+                // Draw the buttons, but they are disabled while solving
                 _ = gui.GuiButton(genRect, "Generate");
                 _ = gui.GuiButton(solvRect, "Solve");
+                // Exit button is still enabled
                 if (gui.GuiButton(exitRect, "Exit") > 0) {
                     break;
                 }
             },
-            .Done => {},
         }
     }
 
@@ -179,9 +198,10 @@ fn drawPath(maze: mg.Maze, color: rl.Color) void {
                 const middle_x: u16 = @truncate(startpoint.x + sectorSize / 2);
                 const middle_y: u16 = @truncate(startpoint.y + sectorSize / 2);
 
+                // Draw line from outside the maze to the start cell
                 if (std.meta.eql(cell.coords, maze.start)) {
                     rl.drawLine(middle_x, middle_y, middle_x - sectorSize / 2, middle_y, color);
-                } else {
+                } else { // Draw line from the current cell to the previous cell
                     const endpoint = coordToPixel(cell.previous.?);
                     const endpoint_x: u16 = @truncate(endpoint.x + sectorSize / 2);
                     const endpoint_y: u16 = @truncate(endpoint.y + sectorSize / 2);
@@ -207,8 +227,11 @@ fn gotoNext(maze: *mg.Maze, currentCoord: *mg.Coordinates) !void {
     const current_cell = maze.cells[currentCoord.y][currentCoord.x];
     const next_dir = try lg.nextCell(maze.*, currentCoord.*);
 
-    if (next_dir == null or std.meta.eql(currentCoord.*, end)) {
-        if (std.meta.eql(currentCoord.*, start)) return error.GenerationDone;
+    if (next_dir == null or std.meta.eql(currentCoord.*, maze.end)) {
+        // Base case for the recursive function
+        // If the current cell is the start cell,
+        // the generation has recurred back through the whole maze.
+        if (std.meta.eql(currentCoord.*, maze.start)) return error.GenerationDone;
 
         const toPrev = current_cell.paths[0];
         switch (toPrev) {
@@ -217,6 +240,7 @@ fn gotoNext(maze: *mg.Maze, currentCoord: *mg.Coordinates) !void {
             .Left => currentCoord.* = .{ .y = currentCoord.y, .x = currentCoord.x - 1 },
             .Right => currentCoord.* = .{ .y = currentCoord.y, .x = currentCoord.x + 1 },
         }
+        // recursive call to go back to the previous cell
         return gotoNext(maze, currentCoord);
     }
 
@@ -282,98 +306,4 @@ fn drawWall(coord: mg.Coordinates, dir: mg.Direction, color: rl.Color) void {
         .Left => rl.drawLine(startpoint_x, startpoint_y, startpoint_x, startpoint_y + sectorSize, color),
         .Right => rl.drawLine(startpoint_x + sectorSize, startpoint_y, startpoint_x + sectorSize, startpoint_y + sectorSize, color),
     }
-}
-
-///Debugging function to print the maze to the console using ascii characters.
-///It was a pain in the ass to write.
-fn printMaze(maze: *mg.Maze) void {
-    const stdout = std.io.getStdOut().writer();
-    try stdout.print("#", .{});
-    for (0..maze.cells[0].len * 2) |i| {
-        const coord = mg.Coordinates{ .y = 0, .x = i + 1 };
-        const is_end = std.meta.eql(coord, maze.end);
-
-        if (is_end) {
-            try stdout.print("  ", .{});
-            continue;
-        }
-
-        try stdout.print(" #", .{});
-    }
-
-    try stdout.print("\n", .{});
-
-    var coord: mg.Coordinates = undefined;
-    var cell: mg.Cell = undefined;
-
-    // Every row
-    for (0..maze.cells.len) |i| {
-        // First wall in row
-        coord = mg.Coordinates{ .y = i, .x = 0 };
-        cell = coord.cell(maze).*;
-
-        const is_start_or_end = std.meta.eql(coord, maze.start) or std.meta.eql(coord, maze.end);
-        if (is_start_or_end) {
-            try stdout.print(" ", .{});
-        } else {
-            try stdout.print("#", .{});
-        }
-
-        // Every cell and wall in row
-        for (0..maze.cells[0].len, 0..) |j, count| {
-            _ = j;
-            coord = mg.Coordinates{ .y = i, .x = count };
-
-            cell = coord.cell(maze).*;
-            if ((cell.previous != null or std.meta.eql(coord, maze.start)) and gameState != lg.GameState.Generating) {
-                try stdout.print(" o", .{});
-            } else {
-                try stdout.print("  ", .{});
-            }
-
-            if (cell.hasWall(mg.Direction.Right)) {
-                try stdout.print(" #", .{});
-            } else if (cell.previous != null and coord.toDir(mg.Direction.Right).cell(maze).previous != null) {
-                try stdout.print(" o", .{});
-            } else {
-                try stdout.print("  ", .{});
-            }
-        }
-
-        // New row
-        try stdout.print("\n", .{});
-
-        // Row with no cells
-        try stdout.print("#", .{});
-        for (0..maze.cells[0].len) |j| {
-            coord = mg.Coordinates{ .y = i, .x = j };
-            cell = coord.cell(maze).*;
-
-            if (i != maze.cells.len - 1) {
-                const cellUnder = coord.toDir(mg.Direction.Down).cell(maze).*;
-
-                if (cell.previous != null and cellUnder.previous != null and !cell.hasWall(mg.Direction.Down)) {
-                    try stdout.print(" o", .{});
-                    try stdout.print(" #", .{});
-                    continue;
-                }
-            }
-
-            if (cell.hasWall(mg.Direction.Down)) {
-                try stdout.print(" #", .{});
-            } else {
-                try stdout.print("  ", .{});
-            }
-            try stdout.print(" #", .{});
-        }
-
-        try stdout.print("\n", .{});
-    }
-
-    try stdout.print("\n", .{});
-    for (0..maze.cells.len * 4 + 1) |i| {
-        _ = i;
-        try stdout.print("-", .{});
-    }
-    try stdout.print("\n\n", .{});
 }

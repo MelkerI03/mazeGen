@@ -55,45 +55,6 @@ pub const Maze = struct {
 };
 
 pub fn initMaze(allocator: std.mem.Allocator, size: usize, start: Coordinates, end: Coordinates) !Maze {
-    //  Default 4x4 maze, right after init,
-    //  with start and end inserted.
-    //
-    //  # # # # # # # # #
-    //  x x #   #   #   #
-    //  # # # # # # # # #
-    //  #   #   #   #   #
-    //  # # # # # # # # #
-    //  #   #   #   #
-    //  # # # # # # # # #
-    //  #   #   #   #   #
-    //  # # # # # # # # #
-    //
-    //  Same maze after a cycle:
-    //
-    //  # # # # # # # # #
-    //  x x #   #   #   #
-    //  # x # # # # # # #
-    //  # x #   #   #   #
-    //  # # # # # # # # #
-    //  #   #   #   #
-    //  # # # # # # # # #
-    //  #   #   #   #   #
-    //  # # # # # # # # #
-
-    // if (start.x != 0 and start.y != 0) {
-    //     return error.@"Invalid start coordinates";
-    // }
-    // if (std.meta.eql(start, Coordinates{ .x = 0, .y = 0 })) {
-    //     return error.@"Start coordinates cannot be in corner";
-    // }
-    //
-    // if (end.x != size - 1 and end.y != size - 1) {
-    //     return error.@"Invalid end coordinates";
-    // }
-    // if (std.meta.eql(end, Coordinates{ .x = size - 1, .y = size - 1 })) {
-    //     return error.@"End coordinates cannot be in corner";
-    // }
-
     // Allocate memory for the outer array of slices
     const cells = try allocator.alloc([]Cell, size);
 
@@ -126,8 +87,11 @@ pub fn toggleWall(maze: *Maze, coords: Coordinates, dir: Direction) !void {
     const y_size = maze.cells[0].len;
 
     // Check if coordinates are in bounds.
+    // Debugging only, should never happen.
     if (coords.x > x_size or coords.y > y_size) return error.@"Invalid coordinates";
 
+    // The ordering of the directions comes from VIM-motions (hjkl).
+    // Since this program is written in NeoVim, it is a small homage to the editor.
     switch (dir) {
         Direction.Left => {
             // Not in bounds
@@ -162,98 +126,4 @@ pub fn toggleWall(maze: *Maze, coords: Coordinates, dir: Direction) !void {
             if (coords.x != x_size - 1) coords.toDir(Direction.Right).cell(maze.*).walls ^= 0b1000;
         },
     }
-}
-
-pub fn printMaze(maze: Maze) !void {
-    const stdout = std.io.getStdOut().writer();
-
-    // Print top wall
-    try stdout.print("#", .{});
-    for (0..maze.cells[0].len * 2) |i| {
-        const coord = Coordinates{ .y = 0, .x = i + 1 };
-        const is_end = std.meta.eql(coord, maze.end);
-
-        if (is_end) {
-            try stdout.print("  ", .{});
-            continue;
-        }
-
-        try stdout.print(" #", .{});
-    }
-
-    try stdout.print("\n", .{});
-
-    var coord: Coordinates = undefined;
-    var cell: Cell = undefined;
-
-    // Every row
-    for (0..maze.cells.len) |i| {
-        // First wall in row
-        coord = Coordinates{ .y = i, .x = 0 };
-        cell = coord.cell(maze).*;
-
-        const is_start_or_end = std.meta.eql(coord, maze.start) or std.meta.eql(coord, maze.end);
-        if (is_start_or_end) {
-            try stdout.print(" ", .{});
-        } else {
-            try stdout.print("#", .{});
-        }
-
-        // Every cell and wall in row
-        for (0..maze.cells[0].len, 0..) |j, count| {
-            _ = j;
-            coord = Coordinates{ .y = i, .x = count };
-
-            cell = coord.cell(maze).*;
-            if (cell.previous != null or std.meta.eql(coord, maze.start)) {
-                try stdout.print(" o", .{});
-            } else {
-                try stdout.print("  ", .{});
-            }
-
-            if (cell.hasWall(Direction.Right)) {
-                try stdout.print(" #", .{});
-            } else if (cell.previous != null and coord.toDir(Direction.Right).cell(maze).previous != null) {
-                try stdout.print(" o", .{});
-            } else {
-                try stdout.print("  ", .{});
-            }
-        }
-
-        // New row
-        try stdout.print("\n", .{});
-
-        // Row with no cells
-        try stdout.print("#", .{});
-        for (0..maze.cells[0].len) |j| {
-            coord = Coordinates{ .y = i, .x = j };
-            cell = coord.cell(maze).*;
-
-            if (i != maze.cells.len - 1) {
-                const cellUnder = coord.toDir(Direction.Down).cell(maze).*;
-
-                if (cell.previous != null and cellUnder.previous != null and !cell.hasWall(Direction.Down)) {
-                    try stdout.print(" o", .{});
-                    try stdout.print(" #", .{});
-                    continue;
-                }
-            }
-
-            if (cell.hasWall(Direction.Down)) {
-                try stdout.print(" #", .{});
-            } else {
-                try stdout.print("  ", .{});
-            }
-            try stdout.print(" #", .{});
-        }
-
-        try stdout.print("\n", .{});
-    }
-
-    try stdout.print("\n", .{});
-    for (0..maze.cells.len * 4 + 1) |i| {
-        _ = i;
-        try stdout.print("-", .{});
-    }
-    try stdout.print("\n\n", .{});
 }

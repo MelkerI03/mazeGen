@@ -5,7 +5,6 @@ pub const GameState = enum {
     Menu,
     Generating,
     Solving,
-    Done,
 };
 
 ///Generates a random cell next to the current cell that is not yet visited.
