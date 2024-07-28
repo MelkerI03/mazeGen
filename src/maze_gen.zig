@@ -80,19 +80,19 @@ pub fn initMaze(allocator: std.mem.Allocator, size: usize, start: Coordinates, e
     //  #   #   #   #   #
     //  # # # # # # # # #
 
-    if (start.x != 0 and start.y != 0) {
-        return error.@"Invalid start coordinates";
-    }
-    if (std.meta.eql(start, Coordinates{ .x = 0, .y = 0 })) {
-        return error.@"Start coordinates cannot be in corner";
-    }
-
-    if (end.x != size - 1 and end.y != size - 1) {
-        return error.@"Invalid end coordinates";
-    }
-    if (std.meta.eql(end, Coordinates{ .x = size - 1, .y = size - 1 })) {
-        return error.@"End coordinates cannot be in corner";
-    }
+    // if (start.x != 0 and start.y != 0) {
+    //     return error.@"Invalid start coordinates";
+    // }
+    // if (std.meta.eql(start, Coordinates{ .x = 0, .y = 0 })) {
+    //     return error.@"Start coordinates cannot be in corner";
+    // }
+    //
+    // if (end.x != size - 1 and end.y != size - 1) {
+    //     return error.@"Invalid end coordinates";
+    // }
+    // if (std.meta.eql(end, Coordinates{ .x = size - 1, .y = size - 1 })) {
+    //     return error.@"End coordinates cannot be in corner";
+    // }
 
     // Allocate memory for the outer array of slices
     const cells = try allocator.alloc([]Cell, size);

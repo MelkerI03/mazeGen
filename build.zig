@@ -1,10 +1,23 @@
+// const std = @import("std");
+// const raylib = @import("src/raylib/build.zig");
+// const raygui = @import("src/raygui/build.zig");
+//
+// pub fn build(b: *std.Build) !void {
+//     const target = b.standardTargetOptions(.{});
+//     const mode = b.standardOptimizeOption(.{});
+//     const exe = b.addExecutable(.{ .name = "Mazesolver", .root_source_file = b.path("src/main.zig"), .optimize = mode, .target = target });
+//
+//     raylib.addTo(b, exe, target.query, mode, .{});
+//     raygui.addTo(b, exe, target.query, mode);
+// }
+
 const std = @import("std");
 const rlz = @import("raylib-zig");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    
+
     const raylib_dep = b.dependency("raylib-zig", .{
         .target = target,
         .optimize = optimize,

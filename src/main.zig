@@ -1,27 +1,35 @@
-// raylib-zig (c) Nikolas Wipper 2023
-
 const std = @import("std");
-const mg = @import("maze_gen.zig");
 const rl = @import("raylib");
-const lg = @import("logic.zig");
-const draw = @import("draw.zig");
+const gui = @cImport({
+    @cInclude("raygui.h");
+});
 
-const size: comptime_int = 10;
+const mg = @import("maze_gen.zig");
+const lg = @import("logic.zig");
+// const draw = @import("draw.zig");
+
+const size: comptime_int = 25;
 const start = mg.Coordinates{ .x = 0, .y = 1 };
 const end = mg.Coordinates{ .x = size - 1, .y = size - 2 };
 
-var gameState = lg.GameState.Generating;
+var gameState = lg.GameState.Menu;
+var solved = false;
 
-const screenWidth = 1920;
-const screenHeight = 1080;
+const screenWidth = 1400;
+const screenHeight = 900;
+
+// Variables for button placement
+const guiOffset = 50;
+const buttonWidth = 200;
+const buttonHeight = 100;
 
 // Splits the window up into a responsive grid
-const minSize: u16 = @min(screenWidth, screenHeight);
-const sectorSize: u16 = minSize / (size + 2);
+const minSize: u16 = @truncate(@min(screenWidth - 3 * guiOffset - buttonWidth, screenHeight - 2 * guiOffset));
+const sectorSize: u16 = minSize / size;
 
 // Usefull pixels when drawing the maze
-const middlePixel = mg.Coordinates{ .x = screenWidth / 2, .y = screenHeight / 2 };
-const topLeftPixel = mg.Coordinates{ .x = middlePixel.x - (sectorSize * size / 2), .y = middlePixel.y - (sectorSize * size / 2) };
+const midMaze = mg.Coordinates{ .x = (screenWidth - 300) / 2, .y = screenHeight / 2 };
+const topLeftMaze = mg.Coordinates{ .x = midMaze.x - (sectorSize * size / 2), .y = midMaze.y - (sectorSize * size / 2) };
 
 pub fn main() !void {
 
@@ -34,10 +42,14 @@ pub fn main() !void {
 
     var currentCoord: mg.Coordinates = start;
 
+    const genRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight - 3 * buttonHeight) / 2 - guiOffset, .width = buttonWidth, .height = buttonHeight };
+    const solvRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight - buttonHeight) / 2, .width = buttonWidth, .height = buttonHeight };
+    const exitRect = gui.Rectangle{ .x = screenWidth - guiOffset - buttonWidth, .y = (screenHeight + buttonHeight) / 2 + guiOffset, .width = buttonWidth, .height = buttonHeight };
+
     rl.initWindow(screenWidth, screenHeight, "Maze Generator");
     defer rl.closeWindow(); // Close window and OpenGL context
 
-    rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
+    rl.setTargetFPS(240); // Set our game to run at 60 frames-per-second
 
     //--------------------------------------------------------------------------------------
 
@@ -47,27 +59,24 @@ pub fn main() !void {
         //----------------------------------------------------------------------------------
 
         switch (gameState) {
-            .Menu => {
-                break;
-            },
+            .Menu => {},
             .Generating => {
                 const next = gotoNext(&maze, &currentCoord);
-                if (next == error.@"Done!") {
-                    std.debug.print("Done!\n", .{});
-
+                if (next == error.GenerationDone) {
                     // Reset visited flag for each cell in maze
                     for (0..maze.cells.len) |i| {
                         for (0..maze.cells.len) |j| {
                             maze.cells[i][j].is_visited = false;
                         }
                     }
-                    gameState = lg.GameState.Solving;
+                    gameState = lg.GameState.Menu;
                 }
             },
             .Solving => {
                 const potentialCoords = lg.solveStep(&maze, currentCoord);
                 if (potentialCoords == error.Solved) {
-                    gameState = lg.GameState.Done;
+                    gameState = lg.GameState.Menu;
+                    solved = true;
                 } else {
                     currentCoord = try potentialCoords;
                 }
@@ -87,13 +96,61 @@ pub fn main() !void {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        drawMaze(maze, rl.Color.black, rl.Color.red);
+        switch (gameState) {
+            .Menu => {
+                if (gui.GuiButton(genRect, "Generate") > 0) {
+                    // If the maze is already generated, reset the maze and generate a new one
+                    if (maze.cells[0][0].path_count != 0) {
+                        maze = try mg.initMaze(allocator, size, start, end);
+                        solved = false;
+                        currentCoord = start;
+                    }
+                    gameState = lg.GameState.Generating;
+                }
+                if (gui.GuiButton(solvRect, "Solve") > 0) {
+                    // If maze is not yet generated, print error message
+                    if (maze.cells[0][0].path_count == 0) {
+                        std.debug.print("Maze is not yet generated", .{});
+                    } else if (!solved) {
+                        gameState = lg.GameState.Solving;
+                    }
+                }
+                if (gui.GuiButton(exitRect, "Exit") > 0) {
+                    break;
+                }
+
+                drawMaze(maze, rl.Color.black);
+                if (gameState == lg.GameState.Solving or solved) {
+                    drawPath(maze, rl.Color.red);
+                }
+            },
+            .Generating => {
+                drawMaze(maze, rl.Color.black);
+
+                _ = gui.GuiButton(genRect, "Generate");
+                _ = gui.GuiButton(solvRect, "Solve");
+                if (gui.GuiButton(exitRect, "Exit") > 0) {
+                    break;
+                }
+            },
+            .Solving => {
+                drawMaze(maze, rl.Color.black);
+                drawPath(maze, rl.Color.red);
+                _ = gui.GuiButton(genRect, "Generate");
+                _ = gui.GuiButton(solvRect, "Solve");
+                if (gui.GuiButton(exitRect, "Exit") > 0) {
+                    break;
+                }
+            },
+            .Done => {},
+        }
     }
 
     //----------------------------------------------------------------------------------
 }
 
-fn drawMaze(maze: mg.Maze, wallColor: rl.Color, pathColor: rl.Color) void {
+///Draws the full maze in a raylib window.
+fn drawMaze(maze: mg.Maze, wallColor: rl.Color) void {
     rl.clearBackground(rl.Color.white);
 
     // Draw top wall
@@ -109,8 +166,6 @@ fn drawMaze(maze: mg.Maze, wallColor: rl.Color, pathColor: rl.Color) void {
         for (row) |cell| {
             if (cell.hasWall(mg.Direction.Right)) drawWall(cell.coords, mg.Direction.Right, wallColor);
             if (cell.hasWall(mg.Direction.Down)) drawWall(cell.coords, mg.Direction.Down, wallColor);
-
-            if (gameState == lg.GameState.Solving) drawPath(maze, pathColor);
         }
     }
 }
@@ -134,6 +189,14 @@ fn drawPath(maze: mg.Maze, color: rl.Color) void {
                     rl.drawLine(middle_x, middle_y, endpoint_x, endpoint_y, color);
                 }
             }
+            // Draw line from end cell the the outside of the maze. The maze is now solved.
+            if (solved) {
+                const endpoint = coordToPixel(maze.end);
+                const middle_x: u16 = @truncate(endpoint.x + sectorSize / 2);
+                const middle_y: u16 = @truncate(endpoint.y + sectorSize / 2);
+
+                rl.drawLine(middle_x, middle_y, middle_x + sectorSize / 2, middle_y, color);
+            }
         }
     }
 }
@@ -145,9 +208,10 @@ fn gotoNext(maze: *mg.Maze, currentCoord: *mg.Coordinates) !void {
     const next_dir = try lg.nextCell(maze.*, currentCoord.*);
 
     if (next_dir == null or std.meta.eql(currentCoord.*, end)) {
-        if (std.meta.eql(currentCoord.*, start)) return error.@"Done!";
-        const dir = current_cell.paths[0];
-        switch (dir) {
+        if (std.meta.eql(currentCoord.*, start)) return error.GenerationDone;
+
+        const toPrev = current_cell.paths[0];
+        switch (toPrev) {
             .Up => currentCoord.* = .{ .y = currentCoord.y - 1, .x = currentCoord.x },
             .Down => currentCoord.* = .{ .y = currentCoord.y + 1, .x = currentCoord.x },
             .Left => currentCoord.* = .{ .y = currentCoord.y, .x = currentCoord.x - 1 },
@@ -201,7 +265,7 @@ fn gotoNext(maze: *mg.Maze, currentCoord: *mg.Coordinates) !void {
 
 ///Transforms maze coordinates to a pixel position in a raylib window.
 fn coordToPixel(mazeCoord: mg.Coordinates) mg.Coordinates {
-    const pixelCoord: mg.Coordinates = .{ .x = topLeftPixel.x + mazeCoord.x * sectorSize, .y = topLeftPixel.y + mazeCoord.y * sectorSize };
+    const pixelCoord: mg.Coordinates = .{ .x = topLeftMaze.x + mazeCoord.x * sectorSize, .y = topLeftMaze.y + mazeCoord.y * sectorSize };
 
     return pixelCoord;
 }

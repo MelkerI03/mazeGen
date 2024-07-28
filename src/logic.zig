@@ -94,8 +94,8 @@ pub fn solveStep(maze: *mg.Maze, current: mg.Coordinates) !mg.Coordinates {
 
         if (cellOnPath.is_visited) continue;
         cellOnPath.is_visited = true;
-        if (std.meta.eql(cellOnPath.coords, end)) return error.Solved;
         cellOnPath.previous = current;
+        if (std.meta.eql(cellOnPath.coords, end)) return error.Solved;
         return cellOnPath.coords;
     }
     defer cell.previous = null;
